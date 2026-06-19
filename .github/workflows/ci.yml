@@ -6,6 +6,10 @@ defaults:
   run:
     working-directory: node-typescript-ci
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -31,3 +35,12 @@ jobs:
 
       - name: Docker Build
         run: docker build -t node-typescript-ci .
+
+      - name: configure aws credentials
+        uses: aws-actions/configure-aws-credentials@v4 
+        with:
+          role-to-assume: arn:aws:iam::719514706718:role/github-actions-freelance-templates
+          aws-region: us-east-1
+
+      - name: Verify AWS connection
+        run: aws sts get-caller-identity
