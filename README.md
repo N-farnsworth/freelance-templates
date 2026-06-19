@@ -8,9 +8,9 @@ Reusable infrastructure and deployment templates for freelance client work. Each
 
 ### node-typescript-ci
 
-A minimal Node.js + TypeScript project with CI already configured. Use as a starting point for any TypeScript backend or tool.
+A minimal Node.js + TypeScript project with Docker and CI already configured. Use as a starting point for any TypeScript backend or tool.
 
-**Stack:** Node.js 20, TypeScript, Vitest, GitHub Actions
+**Stack:** Node.js 20, TypeScript, Vitest, Docker, GitHub Actions
 
 **Run locally:**
 
@@ -22,15 +22,31 @@ npm run test
 npm run build
 ```
 
+**Run with Docker:**
+
+```bash
+cd node-typescript-ci
+docker build -t node-typescript-ci .
+docker run --rm node-typescript-ci
+```
+
+Or with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
 **What's included:**
 - TypeScript configured with separate `src/` and `dist/`
 - Vitest for testing
-- GitHub Actions pipeline (typecheck, test, build on every push)
+- Multi-stage Dockerfile (build stage + minimal production image)
+- Docker Compose for single-command runs
+- GitHub Actions pipeline (typecheck, test, build, Docker build on every push)
 - Clean project structure ready to extend
 
 ## Upcoming
 
-- Docker + Docker Compose template
+- Docker Compose with Postgres
 - GitHub Actions + AWS deployment (OIDC)
 - Terraform infrastructure modules
 - Monitoring and alerting setup
