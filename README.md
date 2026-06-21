@@ -8,11 +8,42 @@ Reusable infrastructure and deployment templates for freelance client work. Each
 
 ### node-typescript-ci
 
-A minimal Node.js + TypeScript project with testing, Docker, GitHub Actions, AWS OIDC authentication, and ECR image publishing already configured.
+A minimal Node.js + TypeScript HTTP service with testing, Docker, Docker Compose, GitHub Actions, AWS OIDC authentication, and Amazon ECR image publishing already configured.
 
-Use this as a starting point for TypeScript backend services, worker services, internal tools, or deployment pipeline experiments.
+Use this as a starting point for TypeScript backend services, internal tools, worker APIs, or deployment pipeline experiments.
 
 **Stack:** Node.js 24, TypeScript, Vitest, Docker, Docker Compose, GitHub Actions, AWS ECR, GitHub OIDC
+
+## What This Template Demonstrates
+
+This template demonstrates a complete development-to-container workflow:
+
+```text
+TypeScript source
+→ typecheck
+→ unit tests
+→ build to dist/
+→ Docker image build
+→ long-running HTTP service
+→ health check endpoint
+→ ECR image publishing
+```
+
+## Project Structure
+
+```text
+node-typescript-ci/
+  src/
+    server.ts       # HTTP service entrypoint
+    math.ts         # Example reusable module
+    math.test.ts    # Example unit test
+
+  Dockerfile
+  docker-compose.yml
+  package.json
+  package-lock.json
+  tsconfig.json
+```
 
 ## Local Development
 
@@ -32,6 +63,60 @@ Run the app locally:
 npm run dev
 ```
 
+The server listens on port `3000` by default.
+
+You can override the port with:
+
+```bash
+PORT=4000 npm run dev
+```
+
+## HTTP Endpoints
+
+### Health Check
+
+```text
+GET /health
+```
+
+Expected response:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### Root Route
+
+```text
+GET /
+```
+
+Returns basic app/service information.
+
+### Unknown Routes
+
+Unknown routes return HTTP status `404` with a JSON error response.
+
+## Test the Service Locally
+
+With the server running:
+
+```bash
+curl -i http://localhost:3000/health
+curl -i http://localhost:3000/
+curl -i http://localhost:3000/nope
+```
+
+Expected behavior:
+
+```text
+/health → 200 OK
+/       → 200 OK
+/nope   → 404 Not Found
+```
+
 ## Docker
 
 Build the Docker image:
@@ -44,19 +129,85 @@ docker build -t node-typescript-ci .
 Run the container:
 
 ```bash
-docker run --rm node-typescript-ci
+docker run --rm -p 3000:3000 node-typescript-ci
 ```
 
-Or run with Docker Compose:
+Then test from another terminal:
 
 ```bash
+curl -i http://localhost:3000/health
+curl -i http://localhost:3000/
+curl -i http://localhost:3000/nope
+```
+
+If port `3000` is already in use, map a different host port:
+
+```bash
+docker run --rm -p 3001:3000 node-typescript-ci
+```
+
+Then test:
+
+```bash
+curl -i http://localhost:3001/health
+```
+
+## Docker Compose
+
+Run with Docker Compose:
+
+```bash
+cd node-typescript-ci
 docker compose up --build
 ```
 
-Expected output:
+Then test:
+
+```bash
+curl -i http://localhost:3000/health
+```
+
+Stop the service with:
 
 ```text
-2 + 3 = 5
+Ctrl+C
+```
+
+## Docker Notes
+
+The app listens on port `3000` inside the container.
+
+```dockerfile
+EXPOSE 3000
+```
+
+documents the intended container port, but it does not publish the port to the host machine.
+
+The host-to-container mapping happens with:
+
+```bash
+docker run -p 3000:3000
+```
+
+Meaning:
+
+```text
+host port 3000 → container port 3000
+```
+
+## Production-Style Start Command
+
+After building TypeScript:
+
+```bash
+npm run build
+npm start
+```
+
+The production entrypoint runs:
+
+```bash
+node dist/server.js
 ```
 
 ## CI Pipeline
@@ -99,19 +250,23 @@ The commit SHA tag is immutable and traceable to the exact Git commit that produ
 
 ## What's Included
 
-* TypeScript configured with separate `src/` and `dist/`
-* Vitest test setup
-* npm professional run loop
-* Multi-stage Dockerfile
-* `.dockerignore`
-* Docker Compose for local container runs
-* GitHub Actions CI
-* Node dependency caching in GitHub Actions
-* Docker image build in CI
-* GitHub OIDC authentication to AWS
-* Amazon ECR login from GitHub Actions
-* Docker image publishing to ECR with `latest` and commit SHA tags
-* Clean project structure ready to extend
+- TypeScript configured with separate `src/` and `dist/`
+- Minimal HTTP service entrypoint
+- `/health` endpoint
+- Root route
+- 404 handling
+- Vitest test setup
+- npm professional run loop
+- Multi-stage Dockerfile
+- `.dockerignore`
+- Docker Compose for local container runs
+- GitHub Actions CI
+- Node dependency caching in GitHub Actions
+- Docker image build in CI
+- GitHub OIDC authentication to AWS
+- Amazon ECR login from GitHub Actions
+- Docker image publishing to ECR with `latest` and commit SHA tags
+- Clean project structure ready to extend
 
 ## Current Status
 
@@ -121,8 +276,11 @@ Completed:
 ✅ Node/TypeScript project setup
 ✅ TypeScript typechecking
 ✅ Vitest testing
+✅ Long-running HTTP service
+✅ Health check endpoint
 ✅ Docker multi-stage build
 ✅ Docker Compose local run
+✅ Dockerized service container
 ✅ GitHub Actions CI
 ✅ AWS OIDC authentication
 ✅ ECR image publishing
@@ -131,11 +289,11 @@ Completed:
 Not included yet:
 
 ```text
-❌ Long-running HTTP service
-❌ Health check endpoint
 ❌ ECS/Fargate deployment
 ❌ Load balancer
-❌ Terraform-managed infrastructure
+❌ Public DNS
+❌ Public TLS certificate
+❌ Terraform/CDK-managed runtime infrastructure
 ❌ Staging/production environment separation
 ❌ Deployment approval gates
 ❌ Monitoring and alerting
@@ -143,23 +301,31 @@ Not included yet:
 
 ## Next Milestone
 
-The next milestone is to convert the current CLI-style container into a minimal long-running HTTP service with health checks.
+The next milestone is deploying this containerized HTTP service to AWS ECS/Fargate behind an Application Load Balancer.
 
-Planned endpoints:
+That will require:
 
 ```text
-GET /health
-GET /
+ECR image
+ECS cluster
+Fargate task definition
+Fargate service
+containerPort 3000
+ALB target group
+ALB health check path /health
+security groups
+CloudWatch logs
 ```
-
-This is required before deploying to ECS/Fargate because Fargate services expect a long-running container process, and load balancers need a stable health check endpoint.
 
 ## Future Work
 
-* Convert the template into a minimal HTTP service
-* Add Docker Compose with Postgres
-* Add Terraform modules for ECR, IAM, ECS, and Fargate
-* Deploy a running container service to ECS/Fargate
-* Add staging and production GitHub Environments
-* Add production approval gates
-* Add CloudWatch logs, dashboards, and alarms
+- Deploy the service to ECS/Fargate
+- Add an Application Load Balancer
+- Configure ALB health checks against `/health`
+- Add public DNS with Route53
+- Add TLS with ACM
+- Add Docker Compose with Postgres
+- Add Terraform or CDK modules for runtime infrastructure
+- Add staging and production GitHub Environments
+- Add production approval gates
+- Add CloudWatch logs, dashboards, and alarms
