@@ -165,6 +165,4 @@ HTTPS :443 listener
 HTTP → HTTPS redirect
 CloudWatch alarms
 Deployment rollback documentation
-
-Test
 ```
