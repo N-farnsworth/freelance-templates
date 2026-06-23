@@ -1,531 +1,263 @@
-# Deployment Plan: ECS/Fargate HTTP Service
+## Automated Deployment Verification
 
-This document defines the planned AWS deployment path for the Node TypeScript HTTP service.
+The ECS/Fargate deployment has been verified manually and through GitHub Actions.
 
-The goal is to deploy the existing Dockerized service to AWS ECS/Fargate behind an Application Load Balancer, using the existing ECR image publishing pipeline as the container artifact source.
-
-## Current Application State
-
-The application is currently a minimal Node.js + TypeScript HTTP service.
-
-Completed locally:
+The service is deployed through this pipeline:
 
 ```text
-✅ TypeScript source builds to dist/
-✅ Unit tests pass
-✅ Docker image builds locally
-✅ Container runs as a long-running service
-✅ Service listens on port 3000
-✅ /health returns 200 OK
-✅ / returns 200 OK
-✅ Unknown routes return 404
-✅ GitHub Actions builds and pushes image to ECR
+GitHub push
+→ GitHub Actions
+→ npm ci
+→ typecheck
+→ test
+→ build
+→ Docker build
+→ ECR push
+→ ECS task definition render
+→ ECS task definition deploy
+→ ECS service stability check
 ```
 
-Current container behavior:
+The deployment uses the commit SHA as the ECS image tag.
+
+Example deployed image:
 
 ```text
-containerPort: 3000
-health check path: /health
-runtime command: node dist/server.js
+719514706718.dkr.ecr.us-east-1.amazonaws.com/node-typescript-ci:f326a99526aa6f904112aa23395069dec4b14398
 ```
 
-## Deployment Goal
+This proves that ECS is deploying an immutable image artifact rather than relying on the mutable `latest` tag.
 
-Deploy the containerized HTTP service to AWS using:
+## Verified AWS Resources
 
 ```text
-Amazon ECR
-Amazon ECS
-AWS Fargate
-Application Load Balancer
-Target Group
-Security Groups
-CloudWatch Logs
+AWS account: 719514706718
+Region: us-east-1
+
+ECR repository: node-typescript-ci
+ECS cluster: freelance-templates-cluster
+ECS service: node-typescript-ci-service
+Task definition family: node-typescript-ci
+Current verified task definition revision: node-typescript-ci:2
+
+Application Load Balancer: node-typescript-ci-alb
+ALB DNS name: node-typescript-ci-alb-1607120896.us-east-1.elb.amazonaws.com
+Target group: node-typescript-ci-tg
+Target type: ip
+Target port: 3000
+Health check path: /health
+
+CloudWatch log group: /ecs/node-typescript-ci
 ```
 
-End state:
+## Verified Endpoint Behavior
 
-```text
-User/browser
-→ Application Load Balancer
-→ ECS/Fargate service
-→ Node container on port 3000
-→ /health used for health checks
-```
-
-## Architecture
-
-```text
-Internet
-  ↓
-Application Load Balancer
-  ↓
-Target Group
-  ↓
-ECS Service
-  ↓
-Fargate Task
-  ↓
-Container: node-typescript-ci
-  ↓
-Node HTTP server listening on port 3000
-```
-
-## AWS Resources Needed
-
-### 1. ECR Repository
-
-Already exists.
-
-Purpose:
-
-```text
-Stores Docker images built by GitHub Actions.
-```
-
-Expected image tags:
-
-```text
-latest
-<git-commit-sha>
-```
-
-The first manual ECS deployment can use `latest`.
-
-A later production workflow should prefer immutable commit SHA tags.
-
-### 2. ECS Cluster
-
-Purpose:
-
-```text
-Logical group where the ECS service runs.
-```
-
-Suggested name:
-
-```text
-freelance-templates-cluster
-```
-
-### 3. CloudWatch Log Group
-
-Purpose:
-
-```text
-Stores logs emitted by the container.
-```
-
-Suggested name:
-
-```text
-/ecs/node-typescript-ci
-```
-
-### 4. ECS Task Definition
-
-Purpose:
-
-```text
-Defines how to run the container.
-```
-
-Required settings:
-
-```text
-Launch type: Fargate
-CPU: 0.25 vCPU
-Memory: 0.5 GB
-Network mode: awsvpc
-Container image: ECR image
-Container port: 3000
-Log driver: awslogs
-```
-
-Container settings:
-
-```text
-name: node-typescript-ci
-portMappings:
-  containerPort: 3000
-environment:
-  PORT=3000
-```
-
-### 5. IAM Roles
-
-The task definition needs:
-
-```text
-Task execution role
-```
-
-The execution role allows ECS/Fargate to:
-
-```text
-Pull image from ECR
-Write logs to CloudWatch
-```
-
-The application itself does not need an application task role yet because it does not call AWS APIs.
-
-### 6. VPC and Subnets
-
-For the first deployment, use the default VPC to reduce complexity.
-
-Required networking:
-
-```text
-Public subnets
-Auto-assign public IP enabled for Fargate tasks
-```
-
-Later production versions can move tasks into private subnets with NAT or VPC endpoints.
-
-### 7. Security Groups
-
-Use two security groups.
-
-#### ALB Security Group
-
-Inbound:
-
-```text
-HTTP 80 from 0.0.0.0/0
-```
-
-Outbound:
-
-```text
-Allow traffic to ECS task security group on port 3000
-```
-
-#### ECS Task Security Group
-
-Inbound:
-
-```text
-TCP 3000 from ALB security group only
-```
-
-Outbound:
-
-```text
-Allow all outbound
-```
-
-The ECS task should not be directly open to the internet.
-
-Only the ALB should receive public traffic.
-
-### 8. Application Load Balancer
-
-Purpose:
-
-```text
-Public entrypoint for HTTP traffic.
-```
-
-Listener:
-
-```text
-HTTP :80
-```
-
-For the first deployment, skip HTTPS.
-
-Later production versions should add:
-
-```text
-Route53 DNS
-ACM certificate
-HTTPS :443 listener
-HTTP → HTTPS redirect
-```
-
-### 9. Target Group
-
-Purpose:
-
-```text
-Routes ALB traffic to healthy ECS tasks.
-```
-
-Target type:
-
-```text
-ip
-```
-
-Protocol:
-
-```text
-HTTP
-```
-
-Port:
-
-```text
-3000
-```
-
-Health check:
-
-```text
-Path: /health
-Expected status: 200
-```
-
-### 10. ECS Service
-
-Purpose:
-
-```text
-Keeps the desired number of Fargate tasks running.
-```
-
-Suggested settings:
-
-```text
-Desired count: 1
-Launch type: Fargate
-Task definition: node-typescript-ci
-Load balancer: Application Load Balancer
-Target group: node-typescript-ci target group
-Container name: node-typescript-ci
-Container port: 3000
-```
-
-If the task crashes or fails health checks, ECS should replace it.
-
-## Manual Deployment Phases
-
-### Phase 1: Confirm Image Exists in ECR
-
-Confirm the latest image exists in ECR.
-
-Expected:
-
-```text
-ECR repository contains image tagged latest and commit SHA.
-```
-
-### Phase 2: Create ECS Cluster
-
-Create a new ECS cluster for the template service.
-
-Expected:
-
-```text
-ECS cluster exists and is empty.
-```
-
-### Phase 3: Create CloudWatch Log Group
-
-Create a log group for ECS task logs.
-
-Expected:
-
-```text
-/ecs/node-typescript-ci exists.
-```
-
-### Phase 4: Create Task Definition
-
-Create a Fargate task definition that uses the ECR image.
-
-Expected:
-
-```text
-Task definition is registered successfully.
-```
-
-### Phase 5: Create ALB and Target Group
-
-Create a public Application Load Balancer and a target group pointing to port 3000.
-
-Expected:
-
-```text
-ALB exists.
-Target group exists.
-Health check path is /health.
-```
-
-### Phase 6: Create ECS Service
-
-Create an ECS service that runs one Fargate task and attaches it to the ALB target group.
-
-Expected:
-
-```text
-ECS service desired count is 1.
-One task starts.
-Task registers in target group.
-Target becomes healthy.
-```
-
-### Phase 7: Test Public Endpoint
-
-Use the ALB DNS name.
-
-Commands:
+The public ALB endpoint was tested with:
 
 ```bash
-curl -i http://<alb-dns-name>/health
-curl -i http://<alb-dns-name>/
-curl -i http://<alb-dns-name>/nope
+curl -i "http://$ALB_DNS_NAME/health"
+curl -i "http://$ALB_DNS_NAME/"
+curl -i "http://$ALB_DNS_NAME/nope"
+```
+
+Verified responses:
+
+```text
+GET /health → 200 OK
+GET /       → 200 OK
+GET /nope   → 404 Not Found
+```
+
+Observed response bodies:
+
+```json
+{"status":"ok"}
+```
+
+```json
+{"status":"running"}
+```
+
+```json
+{"error":"Not Found"}
+```
+
+## Automated Deployment Proof
+
+A visible application response change was pushed to GitHub.
+
+The GitHub Actions workflow:
+
+```text
+✅ Built the application
+✅ Ran typecheck
+✅ Ran tests
+✅ Built the Docker image
+✅ Pushed the image to ECR with the commit SHA tag
+✅ Rendered the ECS task definition with the commit SHA image
+✅ Deployed the new task definition revision to ECS
+✅ Waited for ECS service stability
+```
+
+After the workflow succeeded, the public ALB endpoint returned the updated response from the new application version.
+
+This proves:
+
+```text
+code change
+→ git push
+→ CI validation
+→ image build
+→ image publish
+→ ECS deployment
+→ ALB health check
+→ public endpoint update
+```
+
+## Scale Service Up
+
+If the service was previously scaled down to avoid running costs, scale it back to one running task:
+
+```bash
+aws ecs update-service \
+  --cluster "$CLUSTER_NAME" \
+  --service "$SERVICE_NAME" \
+  --desired-count 1 \
+  --region "$AWS_REGION"
+```
+
+Verify:
+
+```bash
+aws ecs describe-services \
+  --cluster "$CLUSTER_NAME" \
+  --services "$SERVICE_NAME" \
+  --region "$AWS_REGION" \
+  --query 'services[0].{Desired:desiredCount,Running:runningCount,Pending:pendingCount}' \
+  --output table
 ```
 
 Expected:
 
 ```text
-/health → 200 OK
-/       → 200 OK
-/nope   → 404 Not Found
+Desired: 1
+Running: 1
+Pending: 0
 ```
 
-### Phase 8: Check Logs
+Then verify target health:
 
-Check CloudWatch logs.
+```bash
+aws elbv2 describe-target-health \
+  --target-group-arn "$TARGET_GROUP_ARN" \
+  --region "$AWS_REGION" \
+  --query 'TargetHealthDescriptions[*].{Target:Target.Id,Port:Target.Port,State:TargetHealth.State,Reason:TargetHealth.Reason,Description:TargetHealth.Description}' \
+  --output table
+```
 
 Expected:
 
 ```text
-Server startup log appears.
-Requests may appear if request logging is added later.
+State: healthy
+Port: 3000
 ```
 
-## Success Criteria
+## Scale Service Down
 
-Day 5 is complete when:
+To avoid unnecessary Fargate runtime cost during testing, scale the service down to zero:
+
+```bash
+aws ecs update-service \
+  --cluster "$CLUSTER_NAME" \
+  --service "$SERVICE_NAME" \
+  --desired-count 0 \
+  --region "$AWS_REGION"
+```
+
+Verify:
+
+```bash
+aws ecs describe-services \
+  --cluster "$CLUSTER_NAME" \
+  --services "$SERVICE_NAME" \
+  --region "$AWS_REGION" \
+  --query 'services[0].{Desired:desiredCount,Running:runningCount,Pending:pendingCount}' \
+  --output table
+```
+
+Expected:
 
 ```text
-✅ ECS cluster exists
-✅ Task definition registered
-✅ ECS service created
-✅ Fargate task is running
-✅ Target group reports healthy target
-✅ ALB DNS name serves /health
-✅ ALB DNS name serves /
-✅ Unknown route returns 404
-✅ Logs are visible in CloudWatch
-✅ Deployment steps are documented
+Desired: 0
+Running: 0
+Pending: 0
 ```
 
-## Known Risks
-
-### Wrong Container Port
-
-Symptom:
+When scaled down to zero, the ALB may return:
 
 ```text
-ALB health checks fail.
+503 Service Temporarily Unavailable
 ```
 
-Cause:
+This is expected because the target group has no healthy running targets.
+
+## Rollback Notes
+
+Rollback is possible because each deployment creates a new ECS task definition revision with a specific image tag.
+
+Rollback strategy:
 
 ```text
-Target group or ECS service points to the wrong port.
+1. Identify the previously working task definition revision.
+2. Update the ECS service to use that previous revision.
+3. Wait for ECS service stability.
+4. Verify ALB health checks.
+5. Curl the public endpoint.
 ```
 
-Expected port:
+Example rollback shape:
+
+```bash
+aws ecs update-service \
+  --cluster "$CLUSTER_NAME" \
+  --service "$SERVICE_NAME" \
+  --task-definition node-typescript-ci:<previous-good-revision> \
+  --region "$AWS_REGION"
+```
+
+Then verify:
+
+```bash
+aws ecs describe-services \
+  --cluster "$CLUSTER_NAME" \
+  --services "$SERVICE_NAME" \
+  --region "$AWS_REGION" \
+  --query 'services[0].{TaskDefinition:taskDefinition,Desired:desiredCount,Running:runningCount,Pending:pendingCount}' \
+  --output table
+```
+
+## Production Gaps
+
+This deployment works, but it is not fully production-grade yet.
+
+Remaining production work:
 
 ```text
-3000
+Infrastructure as Code
+HTTPS
+Route53 DNS
+ACM certificate
+HTTP to HTTPS redirect
+CloudWatch alarms
+Structured logs
+Deployment rollback runbook
+Staging and production environments
+GitHub environment approval gates
+Least-privilege IAM review
 ```
 
-### Wrong Health Check Path
+The next major improvement is Infrastructure as Code.
 
-Symptom:
+Manual-created infrastructure proves understanding.
 
-```text
-Target remains unhealthy.
-```
-
-Expected path:
-
-```text
-/health
-```
-
-### Security Group Blocks ALB to Task
-
-Symptom:
-
-```text
-Task runs, but target group stays unhealthy.
-```
-
-Fix:
-
-```text
-Allow inbound TCP 3000 to ECS task security group from ALB security group.
-```
-
-### App Binds to Localhost Only
-
-Symptom:
-
-```text
-Container runs but cannot receive external traffic.
-```
-
-Fix:
-
-```text
-Server must listen on 0.0.0.0 or default Node server binding.
-```
-
-### Wrong ECR Image Tag
-
-Symptom:
-
-```text
-Old app version deploys.
-```
-
-Fix:
-
-```text
-Use latest for first manual deployment.
-Use commit SHA tags for traceable deployments later.
-```
-
-## Cleanup Plan
-
-If this is only a learning/test deployment, delete resources after testing to avoid unnecessary AWS charges.
-
-Delete in this order:
-
-```text
-ECS service
-ECS task definition revisions if desired
-ALB
-Target group
-Security groups created for this service
-CloudWatch log group if no longer needed
-ECS cluster
-```
-
-Do not delete the ECR repository unless the image history is no longer needed.
-
-## Future Production Improvements
-
-After the first manual deployment works:
-
-```text
-Add CDK or Terraform infrastructure
-Use private subnets for Fargate tasks
-Add HTTPS with ACM
-Add Route53 DNS
-Use immutable commit SHA image tags
-Add GitHub deployment environments
-Add manual production approval gates
-Add CloudWatch alarms
-Add request logging
-Add structured JSON logs
-Add container health checks
-Add autoscaling
-```
+Infrastructure as Code proves repeatability.

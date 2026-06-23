@@ -1,218 +1,6 @@
-# Freelance Templates
+## CI/CD Pipeline
 
-Reusable infrastructure and deployment templates for freelance client work. Each template is designed as a production-minded starting point for common client deployment workflows.
-
-![CI](https://github.com/N-farnsworth/freelance-templates/actions/workflows/ci.yml/badge.svg)
-
-## Templates
-
-### node-typescript-ci
-
-A minimal Node.js + TypeScript HTTP service with testing, Docker, Docker Compose, GitHub Actions, AWS OIDC authentication, and Amazon ECR image publishing already configured.
-
-Use this as a starting point for TypeScript backend services, internal tools, worker APIs, or deployment pipeline experiments.
-
-**Stack:** Node.js 24, TypeScript, Vitest, Docker, Docker Compose, GitHub Actions, AWS ECR, GitHub OIDC
-
-## What This Template Demonstrates
-
-This template demonstrates a complete development-to-container workflow:
-
-```text
-TypeScript source
-→ typecheck
-→ unit tests
-→ build to dist/
-→ Docker image build
-→ long-running HTTP service
-→ health check endpoint
-→ ECR image publishing
-```
-
-## Project Structure
-
-```text
-node-typescript-ci/
-  src/
-    server.ts       # HTTP service entrypoint
-    math.ts         # Example reusable module
-    math.test.ts    # Example unit test
-
-  Dockerfile
-  docker-compose.yml
-  package.json
-  package-lock.json
-  tsconfig.json
-```
-
-## Local Development
-
-From the template directory:
-
-```bash
-cd node-typescript-ci
-npm ci
-npm run typecheck
-npm run test
-npm run build
-```
-
-Run the app locally:
-
-```bash
-npm run dev
-```
-
-The server listens on port `3000` by default.
-
-You can override the port with:
-
-```bash
-PORT=4000 npm run dev
-```
-
-## HTTP Endpoints
-
-### Health Check
-
-```text
-GET /health
-```
-
-Expected response:
-
-```json
-{
-  "status": "ok"
-}
-```
-
-### Root Route
-
-```text
-GET /
-```
-
-Returns basic app/service information.
-
-### Unknown Routes
-
-Unknown routes return HTTP status `404` with a JSON error response.
-
-## Test the Service Locally
-
-With the server running:
-
-```bash
-curl -i http://localhost:3000/health
-curl -i http://localhost:3000/
-curl -i http://localhost:3000/nope
-```
-
-Expected behavior:
-
-```text
-/health → 200 OK
-/       → 200 OK
-/nope   → 404 Not Found
-```
-
-## Docker
-
-Build the Docker image:
-
-```bash
-cd node-typescript-ci
-docker build -t node-typescript-ci .
-```
-
-Run the container:
-
-```bash
-docker run --rm -p 3000:3000 node-typescript-ci
-```
-
-Then test from another terminal:
-
-```bash
-curl -i http://localhost:3000/health
-curl -i http://localhost:3000/
-curl -i http://localhost:3000/nope
-```
-
-If port `3000` is already in use, map a different host port:
-
-```bash
-docker run --rm -p 3001:3000 node-typescript-ci
-```
-
-Then test:
-
-```bash
-curl -i http://localhost:3001/health
-```
-
-## Docker Compose
-
-Run with Docker Compose:
-
-```bash
-cd node-typescript-ci
-docker compose up --build
-```
-
-Then test:
-
-```bash
-curl -i http://localhost:3000/health
-```
-
-Stop the service with:
-
-```text
-Ctrl+C
-```
-
-## Docker Notes
-
-The app listens on port `3000` inside the container.
-
-```dockerfile
-EXPOSE 3000
-```
-
-documents the intended container port, but it does not publish the port to the host machine.
-
-The host-to-container mapping happens with:
-
-```bash
-docker run -p 3000:3000
-```
-
-Meaning:
-
-```text
-host port 3000 → container port 3000
-```
-
-## Production-Style Start Command
-
-After building TypeScript:
-
-```bash
-npm run build
-npm start
-```
-
-The production entrypoint runs:
-
-```bash
-node dist/server.js
-```
-
-## CI Pipeline
-
-On every push, GitHub Actions runs the full validation and artifact pipeline:
+On every push, GitHub Actions runs the full validation, image publishing, and ECS deployment pipeline:
 
 ```text
 npm ci
@@ -223,30 +11,61 @@ docker build
 AWS OIDC authentication
 ECR login
 Docker image push to ECR
+Render ECS task definition with commit SHA image
+Deploy task definition to ECS service
+Wait for ECS service stability
 ```
 
-The workflow verifies that the project can be installed, typechecked, tested, built, containerized, authenticated to AWS, and published as a Docker image artifact.
+The workflow verifies that the project can be installed, typechecked, tested, built, containerized, authenticated to AWS, published as a Docker image artifact, and deployed to ECS/Fargate.
 
-## AWS Authentication
+The deployment uses an immutable commit SHA image tag rather than relying on `latest`.
 
-This repository uses GitHub OIDC to authenticate GitHub Actions to AWS.
-
-No long-lived AWS access keys are stored in GitHub Secrets.
-
-The workflow assumes an AWS IAM role scoped to this repository and branch, then uses that role to log in to Amazon ECR and push Docker images.
-
-## ECR Image Publishing
-
-Successful workflow runs publish the Docker image to Amazon ECR using two tags:
+Deployment flow:
 
 ```text
-latest
-<git-commit-sha>
+GitHub push
+→ GitHub Actions
+→ Docker image build
+→ ECR image push
+→ ECS task definition render
+→ ECS task definition revision
+→ ECS service update
+→ Fargate rolling deployment
+→ ALB health check
+→ public service update
 ```
 
-The `latest` tag is useful for quick manual inspection.
+## AWS Deployment
 
-The commit SHA tag is immutable and traceable to the exact Git commit that produced the image.
+The `node-typescript-ci` service is deployed to AWS ECS/Fargate behind an Application Load Balancer.
+
+Current deployed resources:
+
+```text
+ECR repository: node-typescript-ci
+ECS cluster: freelance-templates-cluster
+ECS service: node-typescript-ci-service
+Task definition family: node-typescript-ci
+Application Load Balancer: node-typescript-ci-alb
+Target group: node-typescript-ci-tg
+Container port: 3000
+Health check path: /health
+CloudWatch log group: /ecs/node-typescript-ci
+```
+
+Public endpoint:
+
+```text
+http://node-typescript-ci-alb-1607120896.us-east-1.elb.amazonaws.com
+```
+
+Expected endpoint behavior:
+
+```text
+GET /health → 200 OK
+GET /       → 200 OK
+GET /nope   → 404 Not Found
+```
 
 ## What's Included
 
@@ -266,6 +85,11 @@ The commit SHA tag is immutable and traceable to the exact Git commit that produ
 - GitHub OIDC authentication to AWS
 - Amazon ECR login from GitHub Actions
 - Docker image publishing to ECR with `latest` and commit SHA tags
+- ECS task definition stored in the repository
+- ECS task definition rendering in CI
+- Automated ECS/Fargate deployment from GitHub Actions
+- Application Load Balancer with `/health` health checks
+- CloudWatch logging for container output
 - Clean project structure ready to extend
 
 ## Current Status
@@ -284,48 +108,61 @@ Completed:
 ✅ GitHub Actions CI
 ✅ AWS OIDC authentication
 ✅ ECR image publishing
+✅ ECS/Fargate service deployment
+✅ Application Load Balancer
+✅ Target group health checks
+✅ CloudWatch container logs
+✅ Automated ECS deployment from GitHub Actions
+✅ Immutable commit SHA image deployment
 ```
 
 Not included yet:
 
 ```text
-❌ ECS/Fargate deployment
-❌ Load balancer
+❌ Infrastructure as Code for AWS resources
 ❌ Public DNS
 ❌ Public TLS certificate
-❌ Terraform/CDK-managed runtime infrastructure
+❌ HTTPS listener
+❌ HTTP to HTTPS redirect
 ❌ Staging/production environment separation
 ❌ Deployment approval gates
-❌ Monitoring and alerting
+❌ Monitoring dashboards and alarms
+❌ Automated rollback workflow
 ```
 
 ## Next Milestone
 
-The next milestone is deploying this containerized HTTP service to AWS ECS/Fargate behind an Application Load Balancer.
+The next milestone is to convert the manually created AWS infrastructure into repeatable Infrastructure as Code.
 
-That will require:
+Recommended next step:
 
 ```text
-ECR image
-ECS cluster
-Fargate task definition
-Fargate service
-containerPort 3000
-ALB target group
-ALB health check path /health
-security groups
-CloudWatch logs
+AWS resources currently exist and work.
+Now make them reproducible with CDK or Terraform.
 ```
 
-## Future Work
+Target IaC resources:
 
-- Deploy the service to ECS/Fargate
-- Add an Application Load Balancer
-- Configure ALB health checks against `/health`
-- Add public DNS with Route53
-- Add TLS with ACM
-- Add Docker Compose with Postgres
-- Add Terraform or CDK modules for runtime infrastructure
-- Add staging and production GitHub Environments
-- Add production approval gates
-- Add CloudWatch logs, dashboards, and alarms
+```text
+ECR repository
+ECS cluster
+CloudWatch log group
+Task execution role
+Task definition
+ECS service
+Application Load Balancer
+Target group
+Listener
+Security groups
+```
+
+After IaC, add:
+
+```text
+Route53 DNS
+ACM certificate
+HTTPS :443 listener
+HTTP → HTTPS redirect
+CloudWatch alarms
+Deployment rollback documentation
+```
