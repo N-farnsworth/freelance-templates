@@ -62,3 +62,19 @@ jobs:
 
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Render ECS task definition
+        id: render-task-definition
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: node-typescript-ci/task-definition.json
+          container-name: node-typescript-ci
+          image: ${{ steps.login-ecr.outputs.registry }}/node-typescript-ci:${{ github.sha }}
+
+      - name: Deploy ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-definition.outputs.task-definition }}
+          service: node-typescript-ci-service
+          cluster: freelance-templates-cluster
+          wait-for-service-stability: true
