@@ -13,7 +13,12 @@ const server = http.createServer((req, res) => {
     if(req.method === "GET" && req.url == "/"){
         res.statusCode = 200;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ status: "running"}));
+        res.end(JSON.stringify({ 
+            service: "node-typescript-ci",
+            status: "running",
+            version: process.env.COMMIT_SHA || "local",
+            environment: process.env.NODE_ENV || "developement"
+        }));
         return;
     }
     res.statusCode = 404;

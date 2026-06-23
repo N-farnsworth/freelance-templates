@@ -74,6 +74,7 @@ jobs:
           task-definition: node-typescript-ci/task-definition.json
           container-name: node-typescript-ci
           image: ${{ steps.login-ecr.outputs.registry }}/node-typescript-ci:${{ github.sha }}
+          environment-variables: "COMMIT_SHA=${{ github.sha }}"
 
       - name: Deploy ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
