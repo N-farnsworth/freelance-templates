@@ -3,6 +3,7 @@ import { Construct } from 'constructs';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
 
 export class InfrastructureStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -19,9 +20,22 @@ export class InfrastructureStack extends cdk.Stack {
       retention: logs.RetentionDays.ONE_WEEK,
     });
 
+    // VPC
+    const vpc = new ec2.Vpc(this, 'Vpc', {
+      maxAzs: 2,
+      natGateways: 0,
+      subnetConfiguration: [
+        {
+          name: 'Public',
+          subnetType: ec2.SubnetType.PUBLIC,
+        },
+      ],
+    });
+
     // ECS Cluster
     const cluster = new ecs.Cluster(this, 'Cluster', {
       clusterName: 'freelance-templates-cluster-cdk',
+      vpc,
     });
 
   }
